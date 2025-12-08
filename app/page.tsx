@@ -1,65 +1,328 @@
-import Image from "next/image";
+'use client'
+import { useState } from 'react'
+import Papa from 'papaparse'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import { Progress } from '@/components/ui/progress'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Upload, AlertCircle, CheckCircle2, Sparkles, FileSpreadsheet } from 'lucide-react'
+
+interface DataRow {
+  [key: string]: string
+}
+
+interface Issue {
+  type: string
+  description: string
+  count: number
+  severity: 'high' | 'medium' | 'low'
+}
 
 export default function Home() {
+  const [file, setFile] = useState<File | null>(null)
+  const [data, setData] = useState<DataRow[]>([])
+  const [headers, setHeaders] = useState<string[]>([])
+  const [issues, setIssues] = useState<Issue[]>([])
+  const [loading, setLoading] = useState(false)
+  const [qualityScore, setQualityScore] = useState(0)
+
+  const analyzeData = (parsedData: DataRow[]) => {
+    const foundIssues: Issue[] = []
+    let totalIssues = 0
+
+    // Find duplicates
+    const seen = new Set()
+    let duplicates = 0
+    parsedData.forEach(row => {
+      const rowString = JSON.stringify(row)
+      if (seen.has(rowString)) duplicates++
+      seen.add(rowString)
+    })
+    if (duplicates > 0) {
+      foundIssues.push({
+        type: 'Duplicates',
+        description: `${duplicates} duplicate rows detected`,
+        count: duplicates,
+        severity: 'high'
+      })
+      totalIssues += duplicates
+    }
+
+    // Find missing values
+    let missingCount = 0
+    parsedData.forEach(row => {
+      Object.values(row).forEach(value => {
+        if (!value || value.trim() === '') missingCount++
+      })
+    })
+    if (missingCount > 0) {
+      foundIssues.push({
+        type: 'Missing Values',
+        description: `${missingCount} empty cells found`,
+        count: missingCount,
+        severity: 'medium'
+      })
+      totalIssues += missingCount
+    }
+
+    // Check for format inconsistencies
+    const columnFormats: { [key: string]: Set<string> } = {}
+    parsedData.forEach(row => {
+      Object.entries(row).forEach(([key, value]) => {
+        if (!columnFormats[key]) columnFormats[key] = new Set()
+        if (value.match(/^\d{4}-\d{2}-\d{2}$/)) columnFormats[key].add('YYYY-MM-DD')
+        else if (value.match(/^\d{2}\/\d{2}\/\d{4}$/)) columnFormats[key].add('MM/DD/YYYY')
+        else if (value.match(/^\$\d+/)) columnFormats[key].add('$')
+      })
+    })
+    
+    Object.entries(columnFormats).forEach(([col, formats]) => {
+      if (formats.size > 1) {
+        foundIssues.push({
+          type: 'Format Inconsistency',
+          description: `"${col}" has ${formats.size} different formats`,
+          count: formats.size,
+          severity: 'low'
+        })
+        totalIssues += formats.size
+      }
+    })
+
+    // Calculate quality score
+    const totalCells = parsedData.length * headers.length
+    const score = Math.max(0, Math.round(((totalCells - totalIssues) / totalCells) * 100))
+    setQualityScore(score)
+    setIssues(foundIssues)
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const uploadedFile = e.target.files?.[0]
+    if (!uploadedFile) return
+
+    setFile(uploadedFile)
+    setLoading(true)
+
+    Papa.parse(uploadedFile, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const parsedData = results.data as DataRow[]
+        setData(parsedData)
+        const headerKeys = Object.keys(parsedData[0] || {})
+        setHeaders(headerKeys)
+        analyzeData(parsedData)
+        setLoading(false)
+      },
+      error: (error) => {
+        console.error('Error parsing CSV:', error)
+        setLoading(false)
+      }
+    })
+  }
+
+  const getSeverityColor = (severity: string) => {
+    switch(severity) {
+      case 'high': return 'destructive'
+      case 'medium': return 'default'
+      case 'low': return 'secondary'
+      default: return 'default'
+    }
+  }
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return 'text-green-500'
+    if (score >= 50) return 'text-yellow-500'
+    return 'text-red-500'
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        {/* Hero Section */}
+        <div className="text-center mb-12">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <Sparkles className="w-8 h-8 text-violet-600" />
+            <h1 className="text-5xl font-bold bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text text-transparent">
+              DataGuardian AI
+            </h1>
+          </div>
+          <p className="text-xl text-muted-foreground">
+            Clean and sort messy data in seconds with AI-powered automation
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+
+        {/* Upload Card */}
+        <Card className="mb-8 border-2 border-dashed hover:border-violet-400 transition-colors">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5" />
+              Upload Your Data
+            </CardTitle>
+            <CardDescription>
+              Support for CSV files • Max 10MB • Instant analysis
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <Button asChild variant="default" size="lg" className="bg-violet-600 hover:bg-violet-700">
+                <label htmlFor="file-upload" className="cursor-pointer">
+                  <FileSpreadsheet className="w-4 h-4 mr-2" />
+                  Choose File
+                  <input
+                    id="file-upload"
+                    type="file"
+                    accept=".csv"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </Button>
+              {file && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  <span className="font-medium">{file.name}</span>
+                  <span>({(file.size / 1024).toFixed(1)} KB)</span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Loading State */}
+        {loading && (
+          <Card className="mb-8">
+            <CardContent className="pt-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-center gap-2">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-violet-600"></div>
+                  <span className="text-lg font-medium">Analyzing your data...</span>
+                </div>
+                <Progress value={66} className="w-full" />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Quality Score */}
+        {!loading && data.length > 0 && (
+          <Card className="mb-8 bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-950/20 dark:to-indigo-950/20 border-violet-200">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-bold mb-2">Data Quality Score</h3>
+                  <p className="text-muted-foreground">
+                    {data.length} rows analyzed • {issues.length} issues found
+                  </p>
+                </div>
+                <div className="text-center">
+                  <div className={`text-6xl font-bold ${getScoreColor(qualityScore)}`}>
+                    {qualityScore}
+                  </div>
+                  <div className="text-sm text-muted-foreground">out of 100</div>
+                </div>
+              </div>
+              <Progress value={qualityScore} className="mt-4 h-3" />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Issues Found */}
+        {!loading && issues.length > 0 && (
+          <Card className="mb-8">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-yellow-600" />
+                    Issues Detected
+                  </CardTitle>
+                  <CardDescription>
+                    {issues.length} issue{issues.length !== 1 ? 's' : ''} need attention
+                  </CardDescription>
+                </div>
+                <Button size="lg" className="bg-violet-600 hover:bg-violet-700">
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Clean All Issues
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {issues.map((issue, idx) => (
+                <Alert key={idx} variant="default">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="flex items-center justify-between w-full">
+                    <div>
+                      <span className="font-semibold">{issue.type}:</span> {issue.description}
+                    </div>
+                    <Badge variant={getSeverityColor(issue.severity)}>
+                      {issue.count}
+                    </Badge>
+                  </AlertDescription>
+                </Alert>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Data Table */}
+        {!loading && data.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Data Preview</CardTitle>
+              <CardDescription>
+                Showing {Math.min(10, data.length)} of {data.length} rows
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-12">#</TableHead>
+                      {headers.map((header) => (
+                        <TableHead key={header}>{header}</TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.slice(0, 10).map((row, idx) => (
+                      <TableRow key={idx}>
+                        <TableCell className="font-medium text-muted-foreground">
+                          {idx + 1}
+                        </TableCell>
+                        {headers.map((header) => (
+                          <TableCell key={header}>
+                            {row[header] ? (
+                              row[header]
+                            ) : (
+                              <span className="text-red-500 font-semibold">∅</span>
+                            )}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Empty State */}
+        {!loading && data.length === 0 && !file && (
+          <Card className="border-2 border-dashed">
+            <CardContent className="flex flex-col items-center justify-center py-16">
+              <FileSpreadsheet className="w-16 h-16 text-muted-foreground mb-4" />
+              <h3 className="text-xl font-semibold mb-2">No data yet</h3>
+              <p className="text-muted-foreground text-center max-w-md">
+                Upload a CSV file to get started. We'll analyze it instantly and show you what needs fixing.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
-  );
+  )
 }
