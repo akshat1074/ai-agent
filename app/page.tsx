@@ -28,6 +28,93 @@ export default function Home() {
   const [loading, setLoading] = useState(false)
   const [qualityScore, setQualityScore] = useState(0)
 
+  const [cleaning, setCleaning] = useState(false)
+  const [cleanedData, setCleanedData] = useState<DataRow[]>([])
+  const [showComparison, setShowComparison] = useState(false)
+
+  const cleanData = async () => {
+    if (!file || data.length === 0) return
+    
+    setCleaning(true)
+    
+    try {
+      // Convert data back to CSV string
+      const csvString = [
+        headers.join(','),
+        ...data.map(row => headers.map(h => row[h]).join(','))
+      ].join('\n')
+      
+      // Call Kestra API
+      const response = await fetch('http://localhost:8080/api/v1/executions/dataguardian/data_cleaning_agent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          inputs: {
+            csv_data: csvString,
+            issues: issues.map(i => `${i.type}: ${i.description}`)
+          }
+        })
+      })
+      
+      if (!response.ok) throw new Error('Kestra execution failed')
+      
+      const execution = await response.json()
+      const executionId = execution.id
+      
+      // Poll for completion (simple version)
+      let completed = false
+      let attempts = 0
+      
+      while (!completed && attempts < 30) {
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        const statusResponse = await fetch(`http://localhost:8080/api/v1/executions/${executionId}`)
+        const status = await statusResponse.json()
+        
+        if (status.state.current === 'SUCCESS') {
+          completed = true
+          
+          // Get the cleaned data from outputs
+          const cleanedCsv = status.outputs?.cleaned_data?.value || status.outputs?.analyze_and_clean?.textOutput
+          
+          if (cleanedCsv) {
+            // Parse cleaned CSV
+            Papa.parse(cleanedCsv, {
+              header: true,
+              skipEmptyLines: true,
+              complete: (results) => {
+                setCleanedData(results.data as DataRow[])
+                setShowComparison(true)
+                
+                // Recalculate quality score
+                const cleanedHeaders = Object.keys((results.data as DataRow[])[0] || {})
+                const totalCells = (results.data as DataRow[]).length * cleanedHeaders.length
+                const newScore = Math.round((totalCells / (totalCells + 1)) * 100) // Simplified
+                setQualityScore(newScore)
+              }
+            })
+          }
+        } else if (status.state.current === 'FAILED') {
+          throw new Error('Cleaning failed')
+        }
+        
+        attempts++
+      }
+      
+      if (!completed) {
+        throw new Error('Cleaning timeout')
+      }
+      
+    } catch (error) {
+      console.error('Error cleaning data:', error)
+      alert('Failed to clean data. Check console for details.')
+    } finally {
+      setCleaning(false)
+    }
+  }
+
   const analyzeData = (parsedData: DataRow[]) => {
     const foundIssues: Issue[] = []
     let totalIssues = 0

@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  kestra:
+    image: kestra/kestra:latest
+    container_name: kestra
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    environment:
+      KESTRA_CONFIGURATION: |
+        kestra:
+          ai:
+            type: "gemini"
+            gemini:
+              api-key:"AIzaSyAolDsdwWRR5QU77syvAPlWMnS-jhpvd6Q" 
+              model-name: "gemini-2.0-flash-exp"
+          server:
+            access-log:
+              enabled: false
+          http:
+            cors:
+              enabled: true
+              allowed-origins: "*"
+    command: server standalone
