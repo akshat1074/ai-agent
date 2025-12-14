@@ -13,7 +13,7 @@ services:
           ai:
             type: "gemini"
             gemini:
-              api-key:"AIzaSyAolDsdwWRR5QU77syvAPlWMnS-jhpvd6Q" 
+              api-key: "YOUR_GEMINI_API_KEY_HERE"
               model-name: "gemini-2.0-flash-exp"
           server:
             access-log:
